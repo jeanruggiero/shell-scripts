@@ -1,0 +1,242 @@
+#!/bin/bash
+
+# Welcome to my shell scripting tutorial! This tutorial explains how to write a
+# shell script that prints the contents of a .c file to the terminal with syntax
+# highlighting.
+
+# USAGE
+# ./myScript.sh filename.c
+#
+# For example,
+# ./myScript.sh ops.c
+
+# First, turn off filename expansion within strings. Without setting this
+# option, any string containing a "*" will be interpreted as a filename, so the
+# string will expand to include the names of all folders and files in the
+# current directory. Not what we want in this case!
+set -f
+
+# Next, define some constants to represent different terminal output colors.
+# Printing any of these strings to the console will have the effect of changing
+# the color of the console's text until another color value, or the string
+# representing "no color" is printed.
+LCYAN='\033[0;96m'
+CYAN='\033[0;36m'
+PURPLE='\033[0;35m'
+YELLOW='\033[0;93m'
+LGREEN='\033[0;92m'
+GREEN='\033[0;32m'
+GRAY='\033[0;37m'
+NC='\033[0m'
+
+# Here, we define a variable to hold each word. Since there is no guarantee that
+# each word will be surrounded by spaces, we need to read one character at a
+# time and build up the word by appending until we reach a character that isn't
+# alphanumeric.
+word=""
+
+# Next, initialize some flags for use during file parsing. The comment_ml and
+# comment_sl flags tell us whether or not we're inside a single- or double-line
+# comment, respectively. The slash and star flags tell us if the previously 
+# read character was a slash or star and the string flag tells us if we're 
+# inside a string.
+comment_ml=0
+comment_sl=0
+slash=0
+star=0
+string=0
+
+# The name of the file is read as a command line input. The value of the first
+# command line input is always referenced using $1. Here we check to make sure
+# its a .c file by checking the extension. The expression ${1: -2} returns the
+# last two characters of the first command line input (in this case the file
+# name. If it's not a .c file. print an error message and exit from the script.
+if [ ! ${1: -2} = ".c" ]; then
+    echo "Error: incorrect file type."
+    exit -1
+fi
+
+# Now that we've verified the file type, we can enter a while loop that reads
+# one character at a time from the specified input file (the filename is
+# provided after the entire loop). First, we set the Internal Field Separator
+# (IFS) to be an empty string, since we want to keep and print whitespace to the
+# console. The read command with options -r (raw text; disable backslash 
+# escaping) and -N1 (read one character, treat the newline the same as any other
+# character) save the next character in the file in the variable char. The loop
+# will repeat until EOF (end of file) is encountered.
+while IFS='' read -r -N1 char; do
+
+    # Check if we are inside of a string
+    if [ $string -eq 1 ]; then
+        
+        # If we're inside of a string and we encounter another ", then that
+        # marks the end of the string. Print the quote and reset the color to
+        # none.
+        if [ "$char" = $'"' ]; then
+            string=0
+            printf "$char${NC}"
+        else
+
+            # We haven't reached the end of the string, so keep printing
+            # characters in the same color (in this case purple)
+            if [ "$char" = $'%' ]; then
+                printf "%%"
+            else
+                printf "$char"
+            fi
+        fi
+
+        # We don't want to highlight syntax that may occur in the string, so
+        # skip keyword checking and print each character until we exit the
+        # string.
+        continue
+
+    # If we're not inside a string or comment and we come across a ", that 
+    # means we're entering a string. Set the string flag and change the output
+    # color to purple.
+    elif [ "$char" = $'"' ] && [ $comment_ml -eq 0 ] && [ $comment_sl -eq 0 ]; then
+        string=1
+        printf "${PURPLE}$char"
+
+        # Skip keyword checking since we already dealt with the character
+        continue
+    fi
+    
+
+    # Check if we're in a single line comment, signaled by "//"    
+    if [ $comment_sl -eq 1 ]; then
+        
+        # If we reach a new line character while inside a single line comment,
+        # we have left the comment. Reset the color and clear the comment_sl
+        # flag.
+        if [ "$char" = $'\n' ]; then
+            printf "${NC}\n"
+            comment_sl=0
+        
+        # If we haven't reached the end of the comment, keep printing characters
+        # in the same color.
+        else
+            printf "$char"
+        fi
+
+        # Skip syntax highlighting within comments
+        continue
+    
+    # Check if we're in a multiline comment, signaled by "/*"
+    elif [ $comment_ml -eq 1 ]; then
+
+        # If we haven't reached the end of the comment, keep printing characters
+        # in the same color.
+        printf "$char"
+        
+        # If we encounter a *, set the star flag
+        if [ "$char" = "*" ]; then
+            star=1
+
+        # If the star flag is set (last character was a star) and the current
+        # character is a /, we are leaving the comment. Clear the associated
+        # flags and reset the terminal output color.
+        elif [ $star -eq 1 ] && [ "$char" = "/" ]; then
+            comment_ml=0
+            star=0
+            printf "${NC}"
+        
+        # If the last character was a star but the current character is not,
+        # clear the star flag.
+        else
+            star=0
+        fi
+
+        # Skip syntax highlighting inside comments
+        continue
+
+    # If we're not in a comment and we read a single slash, set the slash flag.
+    elif [ "$char" = "/" ] && [ $slash -eq 0 ]; then
+        slash=1
+
+        # Skip printing the slash for now
+        continue
+
+    # If the slash flag is set, determine if we're entering a comment based on
+    # the current character. Either way, clear the slash flag.
+    elif [ $slash -eq 1 ]; then
+        slash=0
+
+        # If we encounter //, we are entering a single line comment. Set the
+        # comment_sl flag, change the output color, and skip syntax highlighting
+        if [ "$char" = "/" ]; then
+            comment_sl=1
+            printf "${LCYAN}//"
+            continue
+
+        # If we encounter /*, we are entering a multiline comment. Set the
+        # comment_ml flag, change the output color, and skip syntax highlighting
+        elif [ "$char" = "*" ]; then
+            comment_ml=1
+            printf "${LCYAN}/*"
+            continue
+        
+        # It was just a single slash, so treat it as a delimiter by printing the
+        # word that preceeded it followed by a slash. Reset the word to an empty
+        # string. A single slash is the division operator and thus it cannot
+        # immediately follow a keyword, so it's okay to print the preceeding
+        # word in the default color.
+        else
+            printf "$word/"
+            word=""  
+        fi  
+    fi
+
+    # When we reach any alphanumeric character, treat it as a delimiter and
+    # check the word that preceeded it to see if it's a keyword and print it in
+    # the appropriate color if so. 
+    if [[ ! $char =~ ^[[:alnum:]|]+$ ]]; then  
+
+        case $word in
+
+            # If the word is a number, print it in purple
+            *[0-9]*) printf "${PURPLE}$word${NC}";;
+
+            # If the word is a c data type, print it in light green
+            char|double|enum|float|int|long|short|struct|union|signed|unsigned|void) printf "${LGREEN}$word${NC}";;
+            
+            # If the word is a c control keyword, print it in yellow
+            auto|break|case|continue|do|else|for|goto|if|return|switch|while) printf "${YELLOW}$word${NC}";;
+            
+            # Print miscellaneous c keywords in gray
+            sizeof|typedef) printf "${GRAY}$word${NC}";;
+            
+            # Print c modifiers in cyan
+            const|default|extern|register|static) printf "${CYAN}$word${NC}";;
+            
+            # We found a word that's not a keyword, so print it in the default
+            # color.
+            *) printf "$word";;
+        esac
+
+        # Reset the word to an empty string after printing it
+        word=""
+
+        # We dealt with slashes before entering the while loop, so don't reprint
+        # them here. If it's any other character, print it to the terminal.
+        if [ ! "$char" = "/" ]; then
+            printf "$char"
+        fi   
+    else
+        # If the character read isn't a delimiter, append it to the portion of
+        # the word that has already been read.
+        word="$word$char"
+    fi
+
+# At the end of the while loop, specify the input source for reading using "$1"
+# to represent a string containing the filename provided as a command line input 
+done < "$1"
+
+# Print a newline to ensure the next command line prompt appears on its own line
+printf "\n"
+
+# Now that we're done, we need to reset the file expansion option to its default
+set +f
+
+# And that's it! Now you know how to write a shell script that prints the
+# contents of a .c file to the terminal with syntax highlighting!
